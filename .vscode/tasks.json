@@ -12,7 +12,7 @@
 			"type": "process",
 			"problemMatcher": "$msCompile",
 			"options": {
-				"cwd": "${workspaceFolder}/function-app"
+				"cwd": "${workspaceFolder}/order-generator"
 			}
 		},
 		{
@@ -31,7 +31,7 @@
 			},
 			"problemMatcher": "$msCompile",
 			"options": {
-				"cwd": "${workspaceFolder}/function-app"
+				"cwd": "${workspaceFolder}/order-generator"
 			}
 		},
 		{
@@ -47,7 +47,7 @@
 			"type": "process",
 			"problemMatcher": "$msCompile",
 			"options": {
-				"cwd": "${workspaceFolder}/function-app"
+				"cwd": "${workspaceFolder}/order-generator"
 			}
 		},
 		{
@@ -64,14 +64,14 @@
 			"dependsOn": "clean release (functions)",
 			"problemMatcher": "$msCompile",
 			"options": {
-				"cwd": "${workspaceFolder}/function-app"
+				"cwd": "${workspaceFolder}/order-generator"
 			}
 		},
 		{
 			"type": "func",
 			"dependsOn": "build (functions)",
 			"options": {
-				"cwd": "${workspaceFolder}/function-app/bin/Debug/net8.0"
+				"cwd": "${workspaceFolder}/order-generator/bin/Debug/net8.0"
 			},
 			"command": "host start",
 			"isBackground": true,

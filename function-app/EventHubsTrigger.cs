@@ -8,18 +8,18 @@ namespace function_app;
 public class EventHubsTrigger
 {
     private readonly ILogger<EventHubsTrigger> _logger;
-    private readonly OrderProcessingService _orderService;
+    private readonly NewsProcessingService _newsService;
 
-    public EventHubsTrigger(ILogger<EventHubsTrigger> logger)
+    public EventHubsTrigger(ILogger<EventHubsTrigger> logger, NewsProcessingService newsService)
     {
         _logger = logger;
-        _orderService = new OrderProcessingService(logger);
+        _newsService = newsService;
     }
 
     [Function(nameof(EventHubsTrigger))]
-    public async Task Run([EventHubTrigger("orders", Connection = "EventHubConnection")] EventData[] input)
+    public async Task Run([EventHubTrigger("news", Connection = "EventHubConnection")] EventData[] input)
     {
-        var processedOrders = new List<Order>();
+        var processedArticles = new List<NewsArticle>();
         var failedEvents = 0;
         
         foreach (var message in input)
@@ -28,12 +28,12 @@ public class EventHubsTrigger
             {
                 var messageBody = message.EventBody.ToString();
 
-                // Parse the order event
-                var order = ParseOrderEvent(messageBody);
+                // Parse the news article event
+                var article = ParseNewsArticleEvent(messageBody);
 
-                if (order != null)
+                if (article != null)
                 {
-                    processedOrders.Add(order);
+                    processedArticles.Add(article);
                 }
                 else
                 {
@@ -48,16 +48,16 @@ public class EventHubsTrigger
         }
 
         // Log summary of this execution
-        _logger.LogInformation($"Processed {processedOrders.Count} orders, {failedEvents} failed in batch of {input.Length}");
+        _logger.LogInformation($"📰 Processed {processedArticles.Count} news articles, {failedEvents} failed in batch of {input.Length}");
 
-        // Process all orders in batch
-        if (processedOrders.Count > 0)
+        // Process all articles in batch
+        if (processedArticles.Count > 0)
         {
-            await _orderService.ProcessOrders(processedOrders);
+            await _newsService.ProcessNewsArticles(processedArticles);
         }
     }
     
-    private Order? ParseOrderEvent(string message)
+    private NewsArticle? ParseNewsArticleEvent(string message)
     {
         try
         {
@@ -68,38 +68,42 @@ public class EventHubsTrigger
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase
             };
             
-            var order = JsonSerializer.Deserialize<Order>(message, options);
+            var article = JsonSerializer.Deserialize<NewsArticle>(message, options);
             
-            if (order != null)
+            if (article != null)
             {
-                _logger.LogDebug($"📥 Received order: {order.OrderId} from {order.CustomerName}");
+                _logger.LogDebug($"📥 Received news article: {article.ArticleId} - {article.Title} by {article.Author}");
             }
             
-            return order;
+            return article;
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Failed to parse order event: {ex.Message}");
+            _logger.LogError($"Failed to parse news article event: {ex.Message}");
             return null;
         }
     }
 }
 
-public class Order
+public class NewsArticle
 {
-    public string OrderId { get; set; } = string.Empty;
-    public string CustomerName { get; set; } = string.Empty;
-    public string Product { get; set; } = string.Empty;
-    public int Quantity { get; set; }
-    public decimal Price { get; set; }
-    public DateTime OrderDate { get; set; }
-    public OrderStatus Status { get; set; }
+    public string ArticleId { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Content { get; set; } = string.Empty;
+    public string Author { get; set; } = string.Empty;
+    public string Source { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public DateTime PublishedDate { get; set; }
+    public int ViewCount { get; set; }
+    public double SentimentScore { get; set; }
+    public ArticleStatus Status { get; set; }
+    public string[] Tags { get; set; } = Array.Empty<string>();
 }
 
-public enum OrderStatus
+public enum ArticleStatus
 {
-    Created,
-    Processing,
-    Completed,
-    Cancelled
+    Draft,
+    Published,
+    Featured,
+    Archived
 }

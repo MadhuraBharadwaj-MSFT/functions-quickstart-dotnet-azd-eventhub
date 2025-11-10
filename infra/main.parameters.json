@@ -7,9 +7,6 @@
     },
     "location": {
       "value": "${AZURE_LOCATION}"
-    },
-    "userPrincipalId": {
-      "value": "${AZURE_PRINCIPAL_ID}"
     }
   }
 }

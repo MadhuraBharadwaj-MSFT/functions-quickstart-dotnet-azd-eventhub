@@ -6,10 +6,14 @@ using Microsoft.Azure.Functions.Worker.OpenTelemetry;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using function_app;
 
 var builder = FunctionsApplication.CreateBuilder(args);
 
 builder.ConfigureFunctionsWebApplication();
+
+// Register services
+builder.Services.AddScoped<NewsProcessingService>();
 
 // Configure OpenTelemetry with Azure Monitor exporter and managed identity
 builder.Services.AddOpenTelemetry()

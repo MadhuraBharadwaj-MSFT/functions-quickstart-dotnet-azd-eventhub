@@ -5,6 +5,8 @@ targetScope = 'subscription'
 @description('Name of the the environment which is used to generate a short unique hash used in all resources.')
 param environmentName string
 
+@minLength(1)
+@description('Primary location for all resources')
 @metadata({
   azd: {
     type: 'location'
@@ -12,342 +14,211 @@ param environmentName string
 })
 param location string
 
-metadata name = 'Event Hubs Demo'
-metadata description = 'Creates Event Hubs triggered Azure Functions demo with Flex Consumption plan'
 
-@description('Id of the user identity to be used for testing and debugging. This is not required in production. Leave empty if not needed.')
-@metadata({
-  azd: {
-    type: 'principalId'
-  }
-})
-param userPrincipalId string  = deployer().objectId
+
+// Optional parameters
+param applicationInsightsName string = ''
+param appServicePlanName string = ''
+param eventHubNamespaceName string = ''
+param functionAppName string = ''
+param logAnalyticsWorkspaceName string = ''
+param resourceGroupName string = ''
+param storageAccountName string = ''
+
+// Networking parameters
+@description('Enable private networking with VNet integration and private endpoints')
+param enablePrivateNetworking bool = false
+param vNetName string = ''
+
+
 
 var abbrs = loadJsonContent('./abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 var tags = { 'azd-env-name': environmentName }
 
-var functionAppName = '${abbrs.webSitesFunctions}${resourceToken}'
-var orderGeneratorAppName = '${abbrs.webSitesFunctions}gen-${resourceToken}'
-var functionAppPlanName = '${abbrs.webServerFarms}${resourceToken}'
-var orderGeneratorPlanName = '${abbrs.webServerFarms}gen-${resourceToken}'
-var functionAppIdentityName = '${abbrs.managedIdentityUserAssignedIdentities}${resourceToken}'
-var resourceGroupName = '${abbrs.resourcesResourceGroups}${environmentName}'
-var storageAccountName = '${abbrs.storageStorageAccounts}${resourceToken}'
-var logAnalyticsName = '${abbrs.operationalInsightsWorkspaces}${resourceToken}'
-var appInsightsName = '${abbrs.insightsComponents}${resourceToken}'
-var eventHubNamespaceName = '${abbrs.eventHubNamespaces}${resourceToken}'
-var eventHubName = 'orders'
-
-var deploymentStorageContainerName = 'app-package-${take(functionAppName, 32)}-${take(toLower(uniqueString(functionAppName, environmentName)), 7)}'
-var storageBlobDataOwner = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
-var storageQueueDataContributor = '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
-var storageTableDataContributor = '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
-var eventHubsDataReceiver = 'a638d3c7-ab3a-418d-83e6-5f17a39d4fde'
-var eventHubsDataSender = '2b629674-e913-4c01-ae53-ef4638d8f975'
-var MonitoringMetricsPublisherRoleId = '3913510d-42f4-4e42-8a64-420c390055eb'
-
-// General resources
-resource resourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' = {
-  name: resourceGroupName
+// Organize resources in a resource group
+resource rg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
+  name: !empty(resourceGroupName) ? resourceGroupName : '${abbrs.resourcesResourceGroups}${environmentName}'
   location: location
   tags: tags
 }
 
-module logAnalytics 'br/public:avm/res/operational-insights/workspace:0.7.0' = {
-  name: '${uniqueString(deployment().name, location)}-loganalytics'
-  scope: resourceGroup
+// User assigned managed identity to be used by the Function App to access Azure resources
+module managedIdentity 'br/public:avm/res/managed-identity/user-assigned-identity:0.4.1' = {
+  name: 'identity'
+  scope: rg
   params: {
-    name: logAnalyticsName
+    name: '${abbrs.managedIdentityUserAssignedIdentities}${resourceToken}'
+    location: location
+    tags: tags
+  }
+}
+
+// Storage account to host function code and for logging
+module storage 'br/public:avm/res/storage/storage-account:0.13.2' = {
+  name: 'storage'
+  scope: rg
+  params: {
+    name: !empty(storageAccountName) ? storageAccountName : '${abbrs.storageStorageAccounts}${resourceToken}'
+    location: location
+    tags: tags
+    kind: 'StorageV2'
+    skuName: 'Standard_LRS'
+    allowBlobPublicAccess: false
+    allowSharedKeyAccess: false
+    blobServices: {
+      containers: [
+        {
+          name: 'deployments'
+        }
+      ]
+    }
+    // Role assignments handled by separate rbac.bicep module
+  }
+}
+
+// Application Insights for monitoring and logging
+module monitoring 'br/public:avm/res/insights/component:0.4.1' = {
+  name: 'monitoring'
+  scope: rg
+  params: {
+    name: !empty(applicationInsightsName) ? applicationInsightsName : '${abbrs.insightsComponents}${resourceToken}'
+    location: location
+    tags: tags
+    workspaceResourceId: logAnalyticsWorkspace.outputs.resourceId
+    disableLocalAuth: true
+    kind: 'web'
+    applicationType: 'web'
+    // Role assignments handled by separate rbac.bicep module
+  }
+}
+
+module logAnalyticsWorkspace 'br/public:avm/res/operational-insights/workspace:0.7.0' = {
+  name: 'loganalytics'
+  scope: rg
+  params: {
+    name: !empty(logAnalyticsWorkspaceName) ? logAnalyticsWorkspaceName : '${abbrs.operationalInsightsWorkspaces}${resourceToken}'
     location: location
     tags: tags
     dataRetention: 30
   }
 }
 
-module monitoring 'br/public:avm/res/insights/component:0.4.1' = {
-  name: '${uniqueString(deployment().name, location)}-appinsights'
-  scope: resourceGroup
+// Event Hub namespace and hub for news streaming
+module eventHub './app/eventhub.bicep' = {
+  name: 'eventhub'
+  scope: rg
   params: {
-    name: appInsightsName
+    name: !empty(eventHubNamespaceName) ? eventHubNamespaceName : '${abbrs.eventHubNamespaces}${resourceToken}'
     location: location
     tags: tags
-    workspaceResourceId: logAnalytics.outputs.resourceId
-    disableLocalAuth: true
-    roleAssignments: [
-      {
-        roleDefinitionIdOrName: MonitoringMetricsPublisherRoleId
-        principalId: funcUserAssignedIdentity.outputs.principalId
-        principalType: 'ServicePrincipal'
-      }
-      {
-        roleDefinitionIdOrName: MonitoringMetricsPublisherRoleId
-        principalId: userPrincipalId
-        principalType: 'User'
-      }
-    ]
+    eventHubName: 'news'
+    partitionCount: 32
+    retentionInDays: 1
   }
 }
 
-module eventHubNamespace 'br/public:avm/res/event-hub/namespace:0.12.5' = {
-  scope: resourceGroup
-  name: eventHubNamespaceName
+// App service plan to host the function app
+module appServicePlan 'br/public:avm/res/web/serverfarm:0.5.0' = {
+  name: 'appserviceplan'
+  scope: rg
   params: {
-    name: eventHubNamespaceName
+    name: !empty(appServicePlanName) ? appServicePlanName : '${abbrs.webServerFarms}${resourceToken}'
     location: location
     tags: tags
-    skuName: 'Standard'
-    disableLocalAuth: true
-    eventhubs: [
-      {
-        name: eventHubName
-        messageRetentionInDays: 1
-        partitionCount: 32
-      }
-    ]
-    roleAssignments:[
-      {
-        roleDefinitionIdOrName: eventHubsDataReceiver
-        principalId: funcUserAssignedIdentity.outputs.principalId
-        principalType: 'ServicePrincipal'
-      }
-      {
-        roleDefinitionIdOrName: eventHubsDataSender
-        principalId: funcUserAssignedIdentity.outputs.principalId
-        principalType: 'ServicePrincipal'
-      }
-      {
-        roleDefinitionIdOrName: eventHubsDataSender
-        principalId: userPrincipalId
-        principalType: 'User'
-      }
-    ]
-  }
-}
-
-module funcUserAssignedIdentity 'br/public:avm/res/managed-identity/user-assigned-identity:0.4.1' = {
-  name: 'funcUserAssignedIdentity'
-  scope: resourceGroup
-  params: {
-    location: location
-    tags: tags
-    name: functionAppIdentityName
-  }
-}
-
-module storageAccount 'br/public:avm/res/storage/storage-account:0.13.2' = {
-  scope: resourceGroup
-  name: storageAccountName
-  params: {
-    name: storageAccountName
-    location: location
-    tags: tags
-    skuName: 'Standard_LRS'
-    kind: 'StorageV2'
-    allowBlobPublicAccess: false
-    allowSharedKeyAccess: false
-    publicNetworkAccess: 'Enabled'
-    networkAcls: {
-      defaultAction: 'Allow'
-    } 
-    minimumTlsVersion: 'TLS1_2'
-    blobServices: {
-      containers: [{name: deploymentStorageContainerName}]
-    }
-    roleAssignments:  [
-      {
-        roleDefinitionIdOrName: storageBlobDataOwner
-        principalId: funcUserAssignedIdentity.outputs.principalId
-        principalType: 'ServicePrincipal'
-      }
-      {
-        roleDefinitionIdOrName: storageQueueDataContributor
-        principalId: funcUserAssignedIdentity.outputs.principalId
-        principalType: 'ServicePrincipal'
-      }
-      {
-        roleDefinitionIdOrName: storageTableDataContributor
-        principalId: funcUserAssignedIdentity.outputs.principalId
-        principalType: 'ServicePrincipal'
-      }
-      {
-        roleDefinitionIdOrName: storageBlobDataOwner
-        principalId: userPrincipalId
-        principalType: 'User'
-      }
-      {
-        roleDefinitionIdOrName: storageQueueDataContributor
-        principalId: userPrincipalId
-        principalType: 'User'
-      }
-      {
-        roleDefinitionIdOrName: storageTableDataContributor
-        principalId: userPrincipalId
-        principalType: 'User'
-      }
-    ]
-  }
-}
-
-// Function App Plan (Flex Consumption)
-module functionAppPlan 'br/public:avm/res/web/serverfarm:0.5.0' = {
-  scope: resourceGroup
-  name: functionAppPlanName
-  params: {
-    name: functionAppPlanName
-    location: location
-    tags: tags
-    skuName: 'FC1'
+    skuName: 'FC1' // Flex Consumption
     reserved: true
   }
 }
 
-// Order Generator App Service Plan (Flex Consumption)
-module orderGeneratorAppPlan 'br/public:avm/res/web/serverfarm:0.5.0' = {
-  scope: resourceGroup
-  name: orderGeneratorPlanName
+// The function app
+module api './app/api.bicep' = {
+  name: 'api'
+  scope: rg
   params: {
-    name: orderGeneratorPlanName
+    name: !empty(functionAppName) ? functionAppName : '${abbrs.webSitesFunctions}${resourceToken}'
     location: location
     tags: tags
-    skuName: 'FC1'
-    reserved: true
+    applicationInsightsName: monitoring.outputs.name
+    appServicePlanId: appServicePlan.outputs.resourceId
+    runtimeName: 'dotnet-isolated'
+    runtimeVersion: '8.0'
+    storageAccountName: storage.outputs.name
+    deploymentStorageContainerName: 'deployments'
+    identityId: managedIdentity.outputs.resourceId
+    identityClientId: managedIdentity.outputs.clientId
+    virtualNetworkSubnetId: ''
+    eventHubNamespaceName: eventHub.outputs.eventHubNamespaceName
+    eventHubName: 'news'
+    appSettings: []
   }
 }
 
-// Function App
-module functionApp 'br/public:avm/res/web/site:0.19.3' = {
-  scope: resourceGroup
-  name: functionAppName
+// Get current user's principal ID for deployment permissions
+var currentUserPrincipalId = '3ed617ba-5a60-418f-b28a-c58e153c2d8a'
+
+// Role assignments for the managed identity to access resources
+module apiRoleAssignments './app/rbac.bicep' = {
+  name: 'rbac'
+  scope: rg
   params: {
-    name: functionAppName
-    location: location
-    tags: union(tags, { 'azd-service-name': 'function-app' })
-    kind: 'functionapp,linux'
-    serverFarmResourceId: functionAppPlan.outputs.resourceId
-    httpsOnly: true
-    managedIdentities: {
-      userAssignedResourceIds: [
-        '${funcUserAssignedIdentity.outputs.resourceId}'
-      ]
-    }
-    functionAppConfig: {
-      deployment: {
-        storage: {
-          type: 'blobContainer'
-          value: '${storageAccount.outputs.primaryBlobEndpoint}${deploymentStorageContainerName}'
-          authentication: {
-            type: 'UserAssignedIdentity'
-            userAssignedIdentityResourceId: funcUserAssignedIdentity.outputs.resourceId 
-          }
-        }
-      }
-      scaleAndConcurrency: {
-        instanceMemoryMB: 2048
-        maximumInstanceCount: 100
-      }
-      runtime: {
-        name: 'dotnet-isolated'
-        version: '8.0'
-      }
-    }
-    siteConfig: {
-      alwaysOn: false
-    }
-    configs: [{
-      name: 'appsettings'
-        properties: {
-          AzureWebJobsStorage__credential: 'managedidentity'
-          AzureWebJobsStorage__clientId: funcUserAssignedIdentity.outputs.clientId
-          AzureWebJobsStorage__accountName: storageAccount.outputs.name
-          APPLICATIONINSIGHTS_AUTHENTICATION_STRING: 'ClientId=${funcUserAssignedIdentity.outputs.clientId};Authorization=AAD'
-          APPLICATIONINSIGHTS_CONNECTION_STRING: monitoring.outputs.connectionString
-          EventHubConnection__fullyQualifiedNamespace: '${eventHubNamespace.name}.servicebus.windows.net'
-          EventHubConnection__clientId : funcUserAssignedIdentity.outputs.clientId
-          EventHubConnection__credential : 'managedidentity'
-          EventHubName: eventHubName
-          AZURE_CLIENT_ID: funcUserAssignedIdentity.outputs.clientId //Used by Open Telemetry managed identity
-        }
-    }]
+    storageAccountName: storage.outputs.name
+    eventHubNamespaceName: eventHub.outputs.eventHubNamespaceName
+    applicationInsightsName: monitoring.outputs.name
+    managedIdentityPrincipalId: managedIdentity.outputs.principalId
+    userIdentityPrincipalId: currentUserPrincipalId
+    allowUserIdentityPrincipal: true // Enable for deployment permissions
+    enableBlob: true
   }
 }
 
-// Order Generator Function App
-module orderGeneratorApp 'br/public:avm/res/web/site:0.19.3' = {
-  scope: resourceGroup
-  name: orderGeneratorAppName
+// Optional VNet for private networking
+module vnet './app/vnet.bicep' = if (enablePrivateNetworking) {
+  name: 'vnet'
+  scope: rg
   params: {
-    name: orderGeneratorAppName
+    vNetName: !empty(vNetName) ? vNetName : '${abbrs.networkVirtualNetworks}${resourceToken}'
     location: location
-    tags: union(tags, { 'azd-service-name': 'order-generator' })
-    kind: 'functionapp,linux'
-    serverFarmResourceId: orderGeneratorAppPlan.outputs.resourceId
-    httpsOnly: true
-    managedIdentities: {
-      userAssignedResourceIds: [
-        '${funcUserAssignedIdentity.outputs.resourceId}'
-      ]
-    }
-    functionAppConfig: {
-      deployment: {
-        storage: {
-          type: 'blobContainer'
-          value: '${storageAccount.outputs.primaryBlobEndpoint}${deploymentStorageContainerName}'
-          authentication: {
-            type: 'UserAssignedIdentity'
-            userAssignedIdentityResourceId: funcUserAssignedIdentity.outputs.resourceId 
-          }
-        }
-      }
-      scaleAndConcurrency: {
-        instanceMemoryMB: 2048
-        maximumInstanceCount: 100
-      }
-      runtime: {
-        name: 'dotnet-isolated'
-        version: '8.0'
-      }
-    }
-    siteConfig: {
-      alwaysOn: false
-    }
-    configs: [{
-      name: 'appsettings'
-        properties: {
-          AzureWebJobsStorage__credential: 'managedidentity'
-          AzureWebJobsStorage__clientId: funcUserAssignedIdentity.outputs.clientId
-          AzureWebJobsStorage__accountName: storageAccount.outputs.name
-          APPLICATIONINSIGHTS_AUTHENTICATION_STRING: 'ClientId=${funcUserAssignedIdentity.outputs.clientId};Authorization=AAD'
-          APPLICATIONINSIGHTS_CONNECTION_STRING: monitoring.outputs.connectionString
-          EventHubConnection__fullyQualifiedNamespace: '${eventHubNamespace.name}.servicebus.windows.net'
-          EventHubConnection__clientId : funcUserAssignedIdentity.outputs.clientId
-          EventHubConnection__credential : 'managedidentity'
-          EventHubNamespace: eventHubNamespace.name
-          EventHubName: eventHubName
-          AZURE_CLIENT_ID: funcUserAssignedIdentity.outputs.clientId
-        }
-    }]
+    tags: tags
   }
 }
 
+// Optional storage private endpoint (commented out due to conditional module reference issues)
+// module storagePrivateEndpoint './app/storage-PrivateEndpoint.bicep' = if (enableStoragePrivateEndpoint) {
+//   name: 'storage-private-endpoint'
+//   scope: rg
+//   params: {
+//     virtualNetworkName: vnet.outputs.vnetId
+//     subnetName: vnet.outputs.peSubnetName
+//     resourceName: storage.outputs.name
+//     location: location
+//     tags: tags
+//   }
+// }
 
-@description('The resource ID of the created Resource Group.')
-output resourceGroupResourceId string = resourceGroup.id
+// Optional EventHub private endpoint (commented out due to conditional module reference issues)
+// module eventHubPrivateEndpoint './app/eventhub-PrivateEndpoint.bicep' = if (enableEventHubPrivateEndpoint) {
+//   name: 'eventhub-private-endpoint'
+//   scope: rg
+//   params: {
+//     eventHubNamespaceId: eventHub.outputs.eventHubNamespaceId
+//     vNetName: vnet.outputs.vnetId
+//     eventHubSubnetName: vnet.outputs.eventHubSubnetName
+//     location: location
+//     tags: tags
+//   }
+// }
 
-@description('The name of the created Resource Group.')
-output resourceGroupName string = resourceGroup.name
+// App outputs
+output APPLICATIONINSIGHTS_CONNECTION_STRING string = monitoring.outputs.connectionString
+output APPLICATIONINSIGHTS_NAME string = monitoring.outputs.name
+output AZURE_LOCATION string = location
+output AZURE_TENANT_ID string = tenant().tenantId
+output AZURE_CLIENT_ID string = managedIdentity.outputs.clientId
+output SERVICE_API_IDENTITY_PRINCIPAL_ID string = managedIdentity.outputs.principalId
+output SERVICE_API_NAME string = api.outputs.SERVICE_API_NAME
+output SERVICE_API_URI string = 'https://${api.outputs.SERVICE_API_NAME}.azurewebsites.net'
 
-@description('The resource ID of the created Function App.')
-output functionAppResourceId string = functionApp.outputs.resourceId
-
-@description('The name of the created Function App.')
-output functionAppName string = functionApp.outputs.name
-
-@description('The resource ID of the created Event Hub Namespace.')
-output eventHubNamespaceResourceId string = eventHubNamespace.outputs.resourceId
-
-@description('The name of the created Event Hub.')
-output eventHubName string = eventHubName
-
-@description('The Event Hub namespace FQDN.')
-output eventHubNamespaceFqdn string = '${eventHubNamespace.outputs.name}.servicebus.windows.net'
+// EventHub outputs for local development
+output EVENTHUB_CONNECTION__fullyQualifiedNamespace string = '${eventHub.outputs.eventHubNamespaceName}.servicebus.windows.net'
+output EVENTHUB_NAME string = 'news'
