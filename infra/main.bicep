@@ -14,8 +14,6 @@ param environmentName string
 })
 param location string
 
-
-
 // Optional parameters
 param applicationInsightsName string = ''
 param appServicePlanName string = ''
@@ -30,7 +28,8 @@ param storageAccountName string = ''
 param enablePrivateNetworking bool = false
 param vNetName string = ''
 
-
+@description('Id of the user identity to be used for testing and debugging. This is not required in production. Leave empty if not needed.')
+param principalId string = deployer().objectId
 
 var abbrs = loadJsonContent('./abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
@@ -154,9 +153,6 @@ module api './app/api.bicep' = {
   }
 }
 
-// Get current user's principal ID for deployment permissions
-var currentUserPrincipalId = '3ed617ba-5a60-418f-b28a-c58e153c2d8a'
-
 // Role assignments for the managed identity to access resources
 module apiRoleAssignments './app/rbac.bicep' = {
   name: 'rbac'
@@ -166,7 +162,7 @@ module apiRoleAssignments './app/rbac.bicep' = {
     eventHubNamespaceName: eventHub.outputs.eventHubNamespaceName
     applicationInsightsName: monitoring.outputs.name
     managedIdentityPrincipalId: managedIdentity.outputs.principalId
-    userIdentityPrincipalId: currentUserPrincipalId
+    userIdentityPrincipalId: principalId
     allowUserIdentityPrincipal: true // Enable for deployment permissions
     enableBlob: true
   }
@@ -182,32 +178,6 @@ module vnet './app/vnet.bicep' = if (enablePrivateNetworking) {
     tags: tags
   }
 }
-
-// Optional storage private endpoint (commented out due to conditional module reference issues)
-// module storagePrivateEndpoint './app/storage-PrivateEndpoint.bicep' = if (enableStoragePrivateEndpoint) {
-//   name: 'storage-private-endpoint'
-//   scope: rg
-//   params: {
-//     virtualNetworkName: vnet.outputs.vnetId
-//     subnetName: vnet.outputs.peSubnetName
-//     resourceName: storage.outputs.name
-//     location: location
-//     tags: tags
-//   }
-// }
-
-// Optional EventHub private endpoint (commented out due to conditional module reference issues)
-// module eventHubPrivateEndpoint './app/eventhub-PrivateEndpoint.bicep' = if (enableEventHubPrivateEndpoint) {
-//   name: 'eventhub-private-endpoint'
-//   scope: rg
-//   params: {
-//     eventHubNamespaceId: eventHub.outputs.eventHubNamespaceId
-//     vNetName: vnet.outputs.vnetId
-//     eventHubSubnetName: vnet.outputs.eventHubSubnetName
-//     location: location
-//     tags: tags
-//   }
-// }
 
 // App outputs
 output APPLICATIONINSIGHTS_CONNECTION_STRING string = monitoring.outputs.connectionString
