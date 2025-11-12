@@ -13,13 +13,13 @@ services:
     language: dotnet
 hooks:
   postprovision:
-    posix:
-      shell: sh
-      run: ./infra/scripts/postprovision.sh
-      interactive: true
-      continueOnError: false
     windows:
       shell: pwsh
-      run: ./infra/scripts/postprovision.ps1
+      run: .\infra\scripts\setuplocalenvironment.ps1
+      interactive: true
+      continueOnError: false
+    posix:
+      shell: sh
+      run: ./infra/scripts/setuplocalenvironment.sh
       interactive: true
       continueOnError: false
