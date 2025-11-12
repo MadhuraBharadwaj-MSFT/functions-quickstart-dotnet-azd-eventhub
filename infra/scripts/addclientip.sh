@@ -32,8 +32,11 @@ else
     
     if [[ -z $IPExists ]]; then
         echo "Adding the client IP $ClientIP to the network rule of the Event Hubs service $EventHubNamespace"
-        az eventhubs namespace network-rule-set ip-rule add --resource-group "$ResourceGroup" --namespace-name "$EventHubNamespace" --ip-rule "ip-address=$ClientIP/32 action=Allow" > /dev/null
-        
+        az eventhubs namespace network-rule-set ip-rule add --resource-group "$ResourceGroup" --namespace-name "$EventHubNamespace" --ip-rule ip-address="$ClientIP" action="Allow" > /dev/null
+
+        echo "Setting Event Hubs network access to 'Selected networks' mode only"
+        az eventhubs namespace network-rule-set update --resource-group "$ResourceGroup" --name "$EventHubNamespace" --default-action "Deny" > /dev/null
+
         # Mark the public network access as enabled since the client IP is added to the network rule
         EventHubResourceId=$(az eventhubs namespace show --resource-group "$ResourceGroup" --name "$EventHubNamespace" --query id -o tsv)
         az resource update --ids "$EventHubResourceId" --set properties.publicNetworkAccess="Enabled" > /dev/null
