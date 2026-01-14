@@ -81,7 +81,7 @@ This serverless architecture enables highly scalable, event-driven news processi
 
 3. Configure VNet settings (optional)
    
-   By default, you must explicitly choose whether to enable VNet integration:
+   You can choose whether to enable VNet integration:
    
    **For simple deployment without VNet (public endpoints):**
    ```bash
@@ -93,7 +93,7 @@ This serverless architecture enables highly scalable, event-driven news processi
    azd env set VNET_ENABLED true
    ```
    
-   > **Note:** If you don't set `VNET_ENABLED`, the deployment will fail with an error asking you to make an explicit choice.
+   > **Note:** If you don't set `VNET_ENABLED`, the deployment will ask you to make an explicit choice.
 
 4. Provision Azure resources using azd
    ```bash
