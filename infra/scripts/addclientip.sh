@@ -4,19 +4,17 @@ set -e
 # Get environment values
 output=$(azd env get-values)
 
-# Parse the output to get the resource names and the resource group
+# Parse the output to get the resource names, resource group, and VNet setting
+EnableVirtualNetwork="false"
 while IFS= read -r line; do
     if [[ $line == EVENTHUBS_CONNECTION__fullyQualifiedNamespace* ]]; then
         EventHubNamespace=$(echo "$line" | cut -d '=' -f 2 | tr -d '"' | sed 's/.servicebus.windows.net//')
     elif [[ $line == RESOURCE_GROUP* ]]; then
         ResourceGroup=$(echo "$line" | cut -d '=' -f 2 | tr -d '"')
+    elif [[ $line == VNET_ENABLED* ]]; then
+        EnableVirtualNetwork=$(echo "$line" | cut -d '=' -f 2 | tr -d '"')
     fi
 done <<< "$output"
-
-# Read the config.json file to see if vnet is enabled
-ConfigFolder="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/../../.azure/$AZURE_ENV_NAME"
-ConfigFile="$ConfigFolder/config.json"
-EnableVirtualNetwork=$(jq -r '.infra.parameters.vnetEnabled' "$ConfigFile")
 
 if [[ $EnableVirtualNetwork == "false" ]]; then
     echo "VNet is not enabled. Skipping adding the client IP to the network rule of the Event Hubs service"

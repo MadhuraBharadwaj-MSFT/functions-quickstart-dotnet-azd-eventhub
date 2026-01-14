@@ -2,7 +2,8 @@ $ErrorActionPreference = "Stop"
 
 $output = azd env get-values
 
-# Parse the output to get the resource names and the resource group
+# Parse the output to get the resource names, resource group, and VNet setting
+$VnetEnabled = $false
 foreach ($line in $output) {
     if ($line -match "EVENTHUBS_CONNECTION__fullyQualifiedNamespace"){
         $EventHubNamespace = ($line -split "=")[1] -replace '"','' -replace '.servicebus.windows.net',''
@@ -10,14 +11,13 @@ foreach ($line in $output) {
     if ($line -match "RESOURCE_GROUP"){
         $ResourceGroup = ($line -split "=")[1] -replace '"',''
     }
+    if ($line -match "^VNET_ENABLED="){
+        $VnetEnabledValue = ($line -split "=")[1] -replace '"',''
+        $VnetEnabled = $VnetEnabledValue -eq "true"
+    }
 }
 
-# Read the config.json file to see if vnet is enabled
-$ConfigFolder = Join-Path $PSScriptRoot "../../.azure/$env:AZURE_ENV_NAME"
-$ConfigFile = Join-Path $ConfigFolder "config.json"
-$jsonContent = Get-Content $ConfigFile | ConvertFrom-Json
-
-if ($jsonContent.infra.parameters.vnetEnabled -eq $false) {
+if ($VnetEnabled -eq $false) {
     Write-Output "VNet is not enabled. Skipping adding the client IP to the network rule of the Event Hubs service"
 }
 else {

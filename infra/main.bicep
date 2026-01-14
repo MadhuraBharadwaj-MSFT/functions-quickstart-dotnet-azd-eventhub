@@ -123,7 +123,7 @@ module storage 'br/public:avm/res/storage/storage-account:0.13.2' = {
 var storageEndpointConfig = {
   enableBlob: true  // Required for AzureWebJobsStorage, .zip deployment, Event Hubs trigger and Timer trigger checkpointing
   enableQueue: false  // Required for Durable Functions and MCP trigger
-  enableTable: false  // Required for Durable Functions and OpenAI triggers and bindings
+  enableTable: true  // Required for Event Hubs trigger checkpointing, Durable Functions and OpenAI triggers and bindings
   enableFiles: false   // Not required, used in legacy scenarios
   allowUserIdentityPrincipal: true   // Allow interactive user identity to access for testing and debugging
 }
