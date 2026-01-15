@@ -123,7 +123,7 @@ This serverless architecture enables highly scalable, event-driven news processi
 4. Start the function locally
    ```bash
    cd src
-   dotnet run
+   func start
    ```
    
    Or use VS Code to run the project with the built-in Azure Functions extension by pressing F5.
